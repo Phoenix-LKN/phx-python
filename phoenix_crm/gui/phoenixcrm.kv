@@ -1,0 +1,45 @@
+<DashboardButton>:
+    orientation: 'vertical'
+    padding: 25
+    spacing: 8
+    canvas.before:
+        Color:
+            rgba: (1, 1, 1, 1) if self.state == 'normal' else (0.9, 0.9, 0.9, 1)
+        RoundedRectangle:
+            pos: self.pos
+            size: self.size
+            radius: [10]
+        Color:
+            rgba: 0.8, 0.8, 0.8, 1
+        Line:
+            rounded_rectangle: (self.x, self.y, self.width, self.height, 10)
+            width: 1.2
+
+    MDIcon:
+        icon: root.icon
+        font_size: '32sp'
+        theme_text_color: "Custom"
+        text_color: 1, 0.4, 0, 1  # Hardcoded orange color
+        size_hint_y: 0.4
+        halign: 'left'
+        valign: 'top'
+        pos_hint: {'center_x': 0.5, 'center_y': 0.5}
+
+    Label:
+        text: root.title
+        font_size: '16sp'
+        bold: True
+        color: 0.1, 0.1, 0.1, 1
+        size_hint_y: 0.3
+        halign: 'left'
+        valign: 'bottom'
+        text_size: self.size
+
+    Label:
+        text: root.subtitle
+        font_size: '12sp'
+        color: 0.4, 0.4, 0.4, 1
+        size_hint_y: 0.3
+        halign: 'left'
+        valign: 'top'
+        text_size: self.size
