@@ -189,3 +189,11 @@ temp/
 
 .env
 .env.*
+
+database/
+
+*.ttf
+
+*.png
+*.jpeg
+*.jpg

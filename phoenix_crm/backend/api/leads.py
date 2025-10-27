@@ -2,10 +2,10 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import datetime
-from api.auth import verify_token
+from backend.api.auth import get_current_user
 from services.lead_service import LeadService
 
-router = APIRouter()
+router = APIRouter(prefix="/api/leads", tags=["leads"])  # Add prefix here
 lead_service = LeadService()
 
 class LeadBase(BaseModel):
@@ -45,13 +45,13 @@ class Lead(LeadBase):
     updated_at: datetime
 
 @router.get("/", response_model=List[Lead])
-async def get_leads(status: Optional[str] = None, payload: dict = Depends(verify_token)):
-    """Get all leads, optionally filtered by status."""
+async def get_leads(current_user: dict = Depends(get_current_user)):
+    """Get all leads for the current user."""
     try:
-        user_id = payload.get("user_id")
-        print(f"Fetching leads for user_id: {user_id}, status filter: {status}")  # Debug log
+        user_id = current_user.get("id")
+        print(f"Fetching leads for user_id: {user_id}")  # Debug log
         
-        leads = lead_service.get_all_leads(user_id, status)
+        leads = lead_service.get_all_leads(user_id)
         
         print(f"Found {len(leads)} leads")  # Debug log
         
@@ -63,10 +63,10 @@ async def get_leads(status: Optional[str] = None, payload: dict = Depends(verify
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/", response_model=Lead)
-async def create_lead(lead: LeadCreate, payload: dict = Depends(verify_token)):
+async def create_lead(lead: LeadCreate, current_user: dict = Depends(get_current_user)):
     """Create a new lead."""
     try:
-        user_id = payload.get("user_id")
+        user_id = current_user.get("id")
         lead_dict = lead.dict()
         created_lead = lead_service.create_lead(lead_dict, user_id)
         return created_lead
@@ -74,7 +74,7 @@ async def create_lead(lead: LeadCreate, payload: dict = Depends(verify_token)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/{lead_id}", response_model=Lead)
-async def get_lead(lead_id: str, payload: dict = Depends(verify_token)):
+async def get_lead(lead_id: str, current_user: dict = Depends(get_current_user)):
     """Get a specific lead by ID."""
     try:
         lead = lead_service.get_lead_by_id(lead_id)
@@ -87,7 +87,7 @@ async def get_lead(lead_id: str, payload: dict = Depends(verify_token)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.put("/{lead_id}", response_model=Lead)
-async def update_lead(lead_id: str, lead: LeadUpdate, payload: dict = Depends(verify_token)):
+async def update_lead(lead_id: str, lead: LeadUpdate, current_user: dict = Depends(get_current_user)):
     """Update a lead."""
     try:
         update_data = {k: v for k, v in lead.dict().items() if v is not None}
@@ -101,7 +101,7 @@ async def update_lead(lead_id: str, lead: LeadUpdate, payload: dict = Depends(ve
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.delete("/{lead_id}")
-async def delete_lead(lead_id: str, payload: dict = Depends(verify_token)):
+async def delete_lead(lead_id: str, current_user: dict = Depends(get_current_user)):
     """Delete a lead."""
     try:
         success = lead_service.delete_lead(lead_id)

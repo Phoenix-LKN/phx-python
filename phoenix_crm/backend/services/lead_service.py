@@ -17,7 +17,8 @@ class LeadService:
     
     def get_all_leads(self, user_id: str, status: Optional[str] = None) -> List[Dict[str, Any]]:
         """Get all leads for a user, optionally filtered by status."""
-        query = self.supabase.table("leads").select("*")
+        # IMPORTANT: Filter by assigned_to to ensure users only see their own leads
+        query = self.supabase.table("leads").select("*").eq("assigned_to", user_id)
         
         if status:
             query = query.eq("status", status)

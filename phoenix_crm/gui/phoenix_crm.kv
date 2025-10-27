@@ -1,3 +1,15 @@
+# Global font and color settings
+<Label>:
+    font_name: 'Inter'
+    
+<Button>:
+    font_name: 'Inter'
+
+# Dark theme colors as KV variables
+#:set bg_dark 0.055, 0.055, 0.055, 1
+#:set text_white 1, 1, 1, 1
+#:set accent_orange 1, 0.4, 0, 1
+
 <DashboardButton>:
     orientation: 'vertical'
     padding: 25
@@ -19,7 +31,7 @@
         icon: root.icon
         font_size: '32sp'
         theme_text_color: "Custom"
-        text_color: 1, 0.4, 0, 1  # Use a hardcoded orange color
+        text_color: accent_orange
         size_hint_y: 0.4
         halign: 'left'
         valign: 'top'
@@ -27,6 +39,7 @@
 
     Label:
         text: root.title
+        font_name: 'Inter'
         font_size: '16sp'
         bold: True
         color: 0.1, 0.1, 0.1, 1
@@ -37,6 +50,7 @@
 
     Label:
         text: root.subtitle
+        font_name: 'Inter'
         font_size: '12sp'
         color: 0.4, 0.4, 0.4, 1
         size_hint_y: 0.3

@@ -1,8 +1,3 @@
-from dotenv import load_dotenv
-
-# Load environment variables FIRST, before any other imports
-load_dotenv()
-
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import sys
@@ -13,11 +8,30 @@ root_dir = Path(__file__).parent.parent
 if str(root_dir) not in sys.path:
     sys.path.insert(0, str(root_dir))
 
-# Import from backend.api (your existing structure)
-from backend.api import auth, leads
+# Try to import from backend - adjust based on your actual structure
+try:
+    # Try importing routers from backend.routers
+    from backend.routers import auth, leads
+except ModuleNotFoundError:
+    try:
+        # Try importing directly from backend
+        from backend import auth, leads
+    except ModuleNotFoundError:
+        # Create placeholder routers if backend doesn't exist yet
+        print("Warning: Backend auth/leads routers not found. Using placeholders.")
+        from fastapi import APIRouter
+        
+        class AuthRouter:
+            router = APIRouter(prefix="/api/auth", tags=["auth"])
+        
+        class LeadsRouter:
+            router = APIRouter(prefix="/api/leads", tags=["leads"])
+        
+        auth = AuthRouter()
+        leads = LeadsRouter()
 
-# Import new routers from backend.routers
-from backend.routers import appointments, goals, notifications, worksheets, training, leaderboard
+# Import new routers from api.routers
+from api.routers import appointments, goals, notifications, worksheets, training
 
 app = FastAPI(title="Phoenix CRM API", version="1.0.0")
 
@@ -32,20 +46,18 @@ app.add_middleware(
 
 # Include routers
 app.include_router(auth.router)
-app.include_router(leads.router)  # Remove the prefix here since it's in the router now
+app.include_router(leads.router)
 app.include_router(appointments.router)
 app.include_router(goals.router)
 app.include_router(notifications.router)
 app.include_router(worksheets.router)
 app.include_router(training.router)
-app.include_router(leaderboard.router)
 
 @app.get("/")
 async def root():
     return {
         "message": "Welcome to the Phoenix CRM API",
         "version": "1.0.0",
-        "status": "running",
         "endpoints": {
             "auth": "/api/auth",
             "leads": "/api/leads",
@@ -53,27 +65,14 @@ async def root():
             "goals": "/api/goals",
             "notifications": "/api/notifications",
             "worksheets": "/api/worksheets",
-            "training": "/api/training",
-            "leaderboard": "/api/leaderboard"
+            "training": "/api/training"
         }
     }
 
 @app.get("/health")
 async def health_check():
-    return {"status": "healthy", "version": "1.0.0"}
+    return {"status": "healthy"}
 
 if __name__ == "__main__":
     import uvicorn
-    print("=" * 50)
-    print("🔥 Phoenix CRM API Server")
-    print("=" * 50)
-    print("Server starting on: http://0.0.0.0:8000")
-    print("API Documentation: http://0.0.0.0:8000/docs")
-    print("=" * 50)
-    uvicorn.run(
-        "backend.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=True,
-        log_level="info"
-    )
+    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)

@@ -14,37 +14,20 @@ from kivy.clock import Clock
 from kivy.core.window import Window
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.properties import StringProperty
-from kivy.graphics import Color, Rectangle, Line, RoundedRectangle  # Add Line import here
-from kivymd.app import MDApp
-from kivymd.uix.label import MDIcon, MDLabel
-from kivymd.uix.card import MDCard
-
-# Handle different KivyMD versions for buttons
-try:
-    # Try newer KivyMD (2.0+)
-    from kivymd.uix.button import MDButton as MDRaisedButton
-    from kivymd.uix.button import MDButtonText as MDFlatButton
-    from kivymd.uix.button import MDIconButton
-    from kivymd.uix.button import MDFloatingActionButton
-except ImportError:
-    try:
-        # Try older KivyMD (1.x)
-        from kivymd.uix.button import MDRaisedButton, MDFlatButton, MDIconButton, MDFloatingActionButton
-    except ImportError:
-        # Fallback to basic Kivy buttons if KivyMD buttons not available
-        from kivy.uix.button import Button as MDRaisedButton
-        from kivy.uix.button import Button as MDFlatButton
-        from kivy.uix.button import Button as MDIconButton
-        from kivy.uix.button import Button as MDFloatingActionButton
-
-from kivymd.uix.textfield import MDTextField
-from kivymd.uix.menu import MDDropdownMenu
-from kivymd.uix.dialog import MDDialog
-from kivymd.uix.boxlayout import MDBoxLayout
+from kivy.graphics import Color, Rectangle, Line, RoundedRectangle
+from kivy.animation import Animation
 from kivy.metrics import dp
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.image import Image
-from kivy.animation import Animation
+
+# Import KivyMD
+try:
+    from kivymd.app import MDApp
+    from kivymd.uix.label import MDIcon
+except ImportError:
+    # Fallback to regular Kivy App if KivyMD is not available
+    MDApp = App
+    MDIcon = Label
 
 # Import our leads model - use relative import
 try:
@@ -60,6 +43,8 @@ except ImportError:
 
 # Import the LeadDrawer component
 from gui.components.lead_drawer import LeadDrawer
+from gui.components.navigation_bar import NavigationBar
+from gui.screens.new_dashboard import NewDashboardScreen
 
 # --- Kivy App Styling ---
 Window.clearcolor = (0.95, 0.96, 0.98, 1)  # Light gray background
@@ -139,21 +124,40 @@ class LoginScreen(Screen):
 
     def auth_thread(self, email, password):
         try:
+            print(f"Attempting login for: {email}")
+            print(f"Backend URL: {self.backend_url}")
+            
             response = requests.post(
                 f"{self.backend_url}/api/auth/login",
                 json={"email": email, "password": password},
                 timeout=10
             )
+            
+            print(f"Response status: {response.status_code}")
+            print(f"Response body: {response.text}")
+            
             if response.status_code == 200 and response.json().get("access_token"):
                 data = response.json()
                 token = data["access_token"]
-                user = data.get("user", {})  # Extract user object
+                user = data.get("user", {})
                 Clock.schedule_once(lambda dt: self.login_success(token, user))
             else:
-                Clock.schedule_once(lambda dt: self.login_error("Invalid credentials"))
-        except requests.exceptions.RequestException:
-            Clock.schedule_once(lambda dt: self.login_error("Cannot connect to server"))
+                error_msg = "Invalid credentials"
+                if response.status_code != 200:
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("detail", error_msg)
+                    except:
+                        error_msg = f"Server error: {response.status_code}"
+                Clock.schedule_once(lambda dt: self.login_error(error_msg))
+        except requests.exceptions.ConnectionError:
+            print("Connection error - is the backend running?")
+            Clock.schedule_once(lambda dt: self.login_error("Cannot connect to server. Is it running on port 8000?"))
+        except requests.exceptions.RequestException as e:
+            print(f"Request exception: {e}")
+            Clock.schedule_once(lambda dt: self.login_error(f"Connection error: {str(e)}"))
         except Exception as e:
+            print(f"Unexpected error: {e}")
             Clock.schedule_once(lambda dt: self.login_error(f"An error occurred: {e}"))
 
     def login_success(self, token, user):
@@ -207,9 +211,23 @@ class LeadsScreen(Screen):
             main_layout.bind(pos=lambda i, v: setattr(main_layout.bg_rect, 'pos', v))
             main_layout.bind(size=lambda i, v: setattr(main_layout.bg_rect, 'size', v))
         
-        # Toolbar with search and Add Lead button
-        toolbar = BoxLayout(size_hint_y=None, height=dp(90), padding=(dp(25), dp(20)), spacing=dp(15))
+        # Add Navigation Bar with logout
+        nav_bar = NavigationBar(
+            title="My Leads",
+            show_back=True,
+            on_back=self.go_back,
+            on_logout=self._logout
+        )
+        main_layout.add_widget(nav_bar)
         
+        # Toolbar with search and Add Lead button
+        toolbar = BoxLayout(size_hint_y=None, height=dp(80), padding=(dp(25), dp(15)), spacing=dp(15))
+        with toolbar.canvas.before:
+            Color(1, 1, 1, 1)
+            toolbar.rect = Rectangle(pos=toolbar.pos, size=toolbar.size)
+            toolbar.bind(pos=lambda i, v: setattr(toolbar.rect, 'pos', v))
+            toolbar.bind(size=lambda i, v: setattr(toolbar.rect, 'size', v))
+
         # Search field with border
         search_container = BoxLayout(size_hint_y=None, height=dp(50), padding=(dp(15), 0), spacing=dp(10))
         with search_container.canvas.before:
@@ -674,6 +692,11 @@ class LeadsScreen(Screen):
         """Navigate back to dashboard."""
         app = App.get_running_app()
         app.screen_manager.current = 'dashboard'
+    
+    def _logout(self):
+        """Handle logout from navigation bar."""
+        app = App.get_running_app()
+        app.on_logout()
 
 
 class DashboardScreen(Screen):
@@ -682,35 +705,38 @@ class DashboardScreen(Screen):
         self.on_logout_callback = on_logout_callback
         
         # Main layout
-        root_layout = BoxLayout(orientation='vertical', padding=(40, 20, 40, 20), spacing=20)
+        root_layout = BoxLayout(orientation='vertical', spacing=0)
         
-        # Header
-        header_layout = BoxLayout(size_hint_y=None, height=50)
-        title = Label(
+        # Add Navigation Bar with logout
+        nav_bar = NavigationBar(
+            title="Phoenix CRM",
+            show_back=False,
+            on_back=None,
+            on_logout=self.logout
+        )
+        root_layout.add_widget(nav_bar)
+        
+        # Content area
+        content_layout = BoxLayout(
+            orientation='vertical',
+            padding=(40, 20, 40, 20),
+            spacing=20
+        )
+        
+        # Welcome message
+        welcome_label = Label(
             text="",
             font_size='28sp',
             bold=True,
             color=(0.1, 0.1, 0.1, 1),
+            size_hint_y=None,
+            height=50,
             halign='left',
             valign='middle'
         )
-        # Keep a reference so we can update it
-        self.title_label = title
-        title.bind(size=title.setter('text_size'))
-        
-        logout_button = Button(
-            text="Logout",
-            size_hint_x=None,
-            width=120,
-            background_color=(0.9, 0.9, 0.9, 1),
-            background_normal='',
-            color=(0.2, 0.2, 0.2, 1)
-        )
-        logout_button.bind(on_press=self.logout)
-
-        header_layout.add_widget(title)
-        header_layout.add_widget(logout_button)
-        root_layout.add_widget(header_layout)
+        self.title_label = welcome_label
+        welcome_label.bind(size=welcome_label.setter('text_size'))
+        content_layout.add_widget(welcome_label)
 
         # Grid for dashboard buttons
         grid_layout = GridLayout(cols=3, spacing=20)
@@ -718,7 +744,7 @@ class DashboardScreen(Screen):
         # Define dashboard items with Material Design Icon names
         # You can find more icons at: https://pictogrammers.com/library/mdi/
         dashboard_items = [
-            {"title": "placeholder", "source": "phx.jpeg"}, # Placeholder for the image
+            {"title": "Appointments", "subtitle": "View and manage your appointments", "icon": "calendar", "screen": "appointments"},
             {"title": "Working Prospects", "subtitle": "Manage your active prospects", "icon": "account-group", "screen": ""},
             {"title": "Follow-Up Tasks", "subtitle": "Track and complete follow-ups", "icon": "calendar-clock", "screen": ""},
             {"title": "Worksheets", "subtitle": "Buyer orders and deal packs", "icon": "file-document-outline", "screen": ""},
@@ -747,7 +773,8 @@ class DashboardScreen(Screen):
                 )
                 grid_layout.add_widget(button)
 
-        root_layout.add_widget(grid_layout)
+        content_layout.add_widget(grid_layout)
+        root_layout.add_widget(content_layout)
         self.add_widget(root_layout)
 
     def on_enter(self):
@@ -757,12 +784,15 @@ class DashboardScreen(Screen):
         username = getattr(app, 'user_full_name', None) or getattr(app, 'user_email', None) or "User"
         self.title_label.text = f"Welcome, {username}!"
 
-    def logout(self, instance):
+    def logout(self, instance=None):
+        """Handle logout."""
         self.on_logout_callback()
 
 class PhoenixCRMApp(MDApp):
     def build(self):
-        self.theme_cls.primary_palette = "Orange"
+        if hasattr(self, 'theme_cls'):
+            self.theme_cls.primary_palette = "Orange"
+        
         self.user_token = None
         self.user_full_name = None
         self.user_email = None
@@ -771,16 +801,15 @@ class PhoenixCRMApp(MDApp):
         login_screen = LoginScreen(name='login', on_login_callback=self.on_login_success)
         self.screen_manager.add_widget(login_screen)
         
-        dashboard_screen = DashboardScreen(name='dashboard', on_logout_callback=self.on_logout)
+        # Use new dashboard
+        dashboard_screen = NewDashboardScreen(name='dashboard', on_logout_callback=self.on_logout)
         self.screen_manager.add_widget(dashboard_screen)
         
         # Add leads screen
         leads_screen = LeadsScreen(name='leads')
         self.screen_manager.add_widget(leads_screen)
 
-        # For development: bypass login
-        self.user_token = "dev_token"  # Set a dummy token
-        self.screen_manager.current = 'dashboard'  # Go straight to dashboard
+        # Removed dev bypass - use real login
         
         return self.screen_manager
 

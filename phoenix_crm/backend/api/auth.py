@@ -1,143 +1,112 @@
-from fastapi import APIRouter, HTTPException, Depends, Header
-from pydantic import BaseModel, EmailStr
-from services.supabase_client import get_supabase_client
-from jose import jwt, JWTError
-import os
-from datetime import datetime, timedelta
+"""
+Authentication API Router
+"""
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from pydantic import BaseModel
 from typing import Optional
+from backend.database import get_supabase_client
 
-router = APIRouter()
+router = APIRouter(prefix="/api/auth", tags=["auth"])
+security = HTTPBearer()
+
 
 class LoginRequest(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
-class SignupRequest(BaseModel):
-    email: EmailStr
-    password: str
-    full_name: str
-    phone_number: Optional[str] = None
-    role: Optional[str] = "user"
 
-class TokenResponse(BaseModel):
+class LoginResponse(BaseModel):
     access_token: str
-    token_type: str
+    token_type: str = "bearer"
     user: dict
 
-def create_access_token(data: dict):
-    to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(hours=24)
-    to_encode.update({"exp": expire})
-    secret_key = os.getenv("JWT_SECRET_KEY", "your-secret-key-here")
-    encoded_jwt = jwt.encode(to_encode, secret_key, algorithm="HS256")
-    return encoded_jwt
 
-def verify_token(authorization: str = Header(...)):
-    try:
-        token = authorization.replace("Bearer ", "")
-        secret_key = os.getenv("JWT_SECRET_KEY", "your-secret-key-here")
-        payload = jwt.decode(token, secret_key, algorithms=["HS256"])
-        return payload
-    except JWTError:
-        raise HTTPException(status_code=401, detail="Invalid authentication credentials")
-
-@router.post("/login", response_model=TokenResponse)
-async def login(request: LoginRequest):
+@router.post("/login", response_model=LoginResponse)
+async def login(credentials: LoginRequest):
+    """Login endpoint for Supabase authentication."""
     supabase = get_supabase_client()
     
     try:
-        print(f"Attempting login for: {request.email}")
+        print(f"Attempting login for: {credentials.email}")
         
+        # Authenticate with Supabase
         response = supabase.auth.sign_in_with_password({
-            "email": request.email,
-            "password": request.password
+            "email": credentials.email,
+            "password": credentials.password
         })
         
-        print(f"Auth successful for user: {response.user.id}")
+        print(f"Supabase response: {response}")
         
-        # Try to get user profile, but don't fail if it doesn't exist
-        try:
-            user_data = supabase.table("users").select("*").eq("id", response.user.id).execute()
-            user_info = user_data.data[0] if user_data.data else None
-        except Exception as profile_error:
-            print(f"Could not fetch user profile: {profile_error}")
-            user_info = None
+        if not response.user:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
         
-        # If no profile exists, create a basic one or use auth data
-        if not user_info:
-            print(f"No user profile found, using auth data")
-            user_info = {
+        return {
+            "access_token": response.session.access_token,
+            "token_type": "bearer",
+            "user": {
                 "id": response.user.id,
                 "email": response.user.email,
-                "full_name": response.user.email.split('@')[0],  # Use email prefix as name
-                "role": "user"
+                "full_name": response.user.user_metadata.get("full_name", ""),
             }
-        
-        # Create JWT token
-        token = create_access_token({
-            "user_id": response.user.id,
-            "email": response.user.email
-        })
-        
-        return TokenResponse(
-            access_token=token,
-            token_type="bearer",
-            user=user_info
-        )
-        
+        }
+    except HTTPException:
+        raise
     except Exception as e:
-        print(f"Login error: {type(e).__name__}: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=401, detail=f"Invalid credentials: {str(e)}")
+        print(f"Login error: {e}")
+        raise HTTPException(status_code=401, detail=f"Authentication failed: {str(e)}")
 
-@router.post("/signup", response_model=TokenResponse)
-async def signup(request: SignupRequest):
+
+@router.post("/signup")
+async def register(credentials: LoginRequest):
+    """Register a new user."""
     supabase = get_supabase_client()
     
     try:
-        # Create auth user
-        auth_response = supabase.auth.sign_up({
-            "email": request.email,
-            "password": request.password
+        response = supabase.auth.sign_up({
+            "email": credentials.email,
+            "password": credentials.password
         })
         
-        # Create user profile
-        user_profile = supabase.table("users").insert({
-            "id": auth_response.user.id,
-            "email": request.email,
-            "full_name": request.full_name,
-            "phone_number": request.phone_number,
-            "role": request.role
-        }).execute()
+        if not response.user:
+            raise HTTPException(status_code=400, detail="Registration failed")
         
-        token = create_access_token({
-            "user_id": auth_response.user.id,
-            "email": request.email
-        })
-        
-        return TokenResponse(
-            access_token=token,
-            token_type="bearer",
-            user=user_profile.data[0]
-        )
-        
+        return {"message": "User registered successfully", "user_id": response.user.id}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=400, detail=f"Registration failed: {str(e)}")
 
-@router.post("/logout")
-async def logout(payload: dict = Depends(verify_token)):
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Get the current authenticated user from the JWT token."""
     supabase = get_supabase_client()
-    supabase.auth.sign_out()
-    return {"message": "Logged out successfully"}
+    token = credentials.credentials
+    
+    try:
+        # Verify the token with Supabase
+        user = supabase.auth.get_user(token)
+        
+        if not user or not user.user:
+            raise HTTPException(status_code=401, detail="Invalid authentication token")
+        
+        return {"id": user.user.id, "email": user.user.email}
+    except Exception as e:
+        print(f"Auth error: {e}")
+        raise HTTPException(status_code=401, detail="Invalid authentication token")
+
 
 @router.get("/me")
-async def get_current_user(payload: dict = Depends(verify_token)):
+async def get_current_user_info(current_user: dict = Depends(get_current_user)):
+    """Get current user information."""
+    return current_user
+
+
+@router.post("/logout")
+async def logout(current_user: dict = Depends(get_current_user)):
+    """Logout the current user."""
     supabase = get_supabase_client()
-    user_id = payload.get("user_id")
     
-    response = supabase.table("users").select("*").eq("id", user_id).execute()
-    if not response.data:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    return response.data[0]
+    try:
+        supabase.auth.sign_out()
+        return {"message": "Logged out successfully"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Logout failed: {str(e)}")
